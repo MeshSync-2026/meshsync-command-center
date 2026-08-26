@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxlint/rs-oxlint/main/oxlintrc.json",
+  "rules": {
+    "no-unused-vars": "warn",
+    "react/no-unescaped-entities": "off"
+  }
+}

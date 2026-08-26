@@ -1,0 +1,17 @@
+export default function App() {
+  return (
+    <div className="min-h-screen bg-ink-950 text-ink-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 rounded-2xl bg-teal-400/10 grid place-items-center mx-auto mb-4 animate-pulse-glow">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#83D3D9" strokeWidth="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <h1 className="text-xl font-bold text-ink-50">MeshSync Command Center</h1>
+        <p className="text-sm text-ink-300 mt-1">Loading…</p>
+      </div>
+    </div>
+  );
+}
