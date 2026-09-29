@@ -97,7 +97,7 @@ export default function AuditTrail() {
                   <th className="px-4 py-3 font-medium">{t("audit.actor")}</th>
                   <th className="px-4 py-3 font-medium">{t("audit.action")}</th>
                   <th className="px-4 py-3 font-medium">{t("audit.target")}</th>
-                  <th className="px-4 py-3 font-medium">{t("audit.ip")}</th>
+                  <th className="px-4 py-3 font-medium">{t("audit.node") || "Origin node"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,7 +121,7 @@ export default function AuditTrail() {
                         {entry.target}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                        {entry.ip_address}
+                        {entry.origin_node_id || "—"}
                       </td>
                     </tr>
                   );

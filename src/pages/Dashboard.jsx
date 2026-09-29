@@ -13,7 +13,7 @@ export default function Dashboard() {
   const { t } = useApp();
   const {
     kpis, incidents, clusters, activity, syncSessions, satUplinks,
-    isSeeded, seedDemoData, clearData,
+    isSeeded, demoSeedingEnabled, seedDemoData, clearData, apiErrors, loading, lastRefresh,
   } = useData();
   const { activeDistrict, districtCoords } = usePrefs();
 
@@ -40,13 +40,22 @@ export default function Dashboard() {
         icon="dashboard"
       />
 
-      {!isSeeded && (
+      {apiErrors.length > 0 && (
+        <div className="card p-4 mb-4 border border-warn-500/40 bg-warn-500/5">
+          <p className="text-xs font-medium text-warn-600 mb-1">Backend connection issues:</p>
+          {apiErrors.map((e, i) => (
+            <p key={i} className="text-xs text-warn-600">{e}</p>
+          ))}
+        </div>
+      )}
+
+      {demoSeedingEnabled && !isSeeded && (
         <div className="card p-6 mb-6 text-center">
           <Icon name="incidents" className="w-10 h-10 text-brand-600 mx-auto mb-3" />
           <h2 className="text-lg font-semibold text-gray-800 mb-1">No data loaded</h2>
           <p className="text-sm text-gray-500 mb-4">
-            The dashboard starts empty. Load AI-generated demo data to explore the interface,
-            or connect the MeshSync backend for live incident data.
+            Live data is loading from the backend automatically{loading ? "…" : ""}.
+            You can also load AI-generated demo data to explore the interface (dev only).
           </p>
           <div className="flex items-center justify-center gap-3">
             <button
@@ -63,7 +72,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {isSeeded && (
+      {demoSeedingEnabled && isSeeded && (
         <div className="flex justify-end mb-4">
           <button
             onClick={clearData}

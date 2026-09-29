@@ -98,11 +98,13 @@ export default function Login() {
           </div>
         </div>
 
-        <div className="mt-4 card p-3 text-xs text-gray-500">
-          <p className="font-medium text-gray-600 mb-1">Demo accounts:</p>
-          <p>anjali@meshsync.lk / demo1234 (Commander)</p>
-          <p>suresh@meshsync.lk / demo1234 (Dispatcher)</p>
-        </div>
+        {import.meta.env.DEV && (
+          <div className="mt-4 card p-3 text-xs text-gray-500">
+            <p className="font-medium text-gray-600 mb-1">Demo accounts (local in-memory backend only):</p>
+            <p>anjali@meshsync.lk / demo1234 (Commander)</p>
+            <p>suresh@meshsync.lk / demo1234 (Dispatcher)</p>
+          </div>
+        )}
 
       </div>
     </div>

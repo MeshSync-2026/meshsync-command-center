@@ -15,19 +15,24 @@ const STATUS_OPTIONS = Object.entries(STATUS).map(([key, val]) => ({
   key,
   label: val.label,
 }));
+// Only statuses a commander can legitimately emit as events (append-only log)
+const BULK_STATUS_OPTIONS = [
+  { key: "RESOLVED", label: STATUS.RESOLVED.label },
+  { key: "CANCELLED", label: "Cancelled" },
+];
 const SEVERITY_OPTIONS = Object.entries(SEVERITY).map(([key, val]) => ({
   key,
   label: val.label,
 }));
 
 export default function Incidents() {
-  const { t, isCommander, user } = useApp();
+  const { t, isCommander } = useApp();
   const {
-    incidents, squads, deleteIncident,
-    bulkAssign, bulkStatus, logActivity,
+    incidents, squads, cancelIncident,
+    bulkAssign, bulkStatus,
   } = useData();
   const { activeDistrict, districtCoords } = usePrefs();
-  const { toastSuccess, toastDanger } = useToast();
+  const { toastSuccess, toastDanger, toastError } = useToast();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -96,35 +101,44 @@ export default function Incidents() {
     setSelected([]);
   }
 
-  function handleBulkAssign() {
+  async function handleBulkAssign() {
     if (!bulkSquad || selected.length === 0) return;
-    bulkAssign(selected, bulkSquad);
-    logActivity("ASSIGN_SQUAD", `${selected.length} incidents`, user?.email);
-    toastSuccess(
-      `Assigned ${selected.length} incident${selected.length > 1 ? "s" : ""} to ${squads.find((s) => s.id === bulkSquad)?.squad_name || "squad"}`
-    );
-    setBulkSquad("");
-    clearSelection();
+    try {
+      await bulkAssign(selected, bulkSquad);
+      toastSuccess(
+        `Assigned ${selected.length} incident${selected.length > 1 ? "s" : ""} to ${squads.find((s) => s.id === bulkSquad)?.squad_name || "squad"}`
+      );
+      setBulkSquad("");
+      clearSelection();
+    } catch (err) {
+      toastError(err.message);
+    }
   }
 
-  function handleBulkStatus() {
+  async function handleBulkStatus() {
     if (!bulkStatusValue || selected.length === 0) return;
-    bulkStatus(selected, bulkStatusValue);
-    logActivity("STATUS_UPDATE", `${selected.length} incidents`, user?.email);
-    toastSuccess(
-      `Updated ${selected.length} incident${selected.length > 1 ? "s" : ""} to ${STATUS[bulkStatusValue]?.label || bulkStatusValue}`
-    );
-    setBulkStatusValue("");
-    clearSelection();
+    try {
+      await bulkStatus(selected, bulkStatusValue);
+      toastSuccess(
+        `Updated ${selected.length} incident${selected.length > 1 ? "s" : ""} to ${STATUS[bulkStatusValue]?.label || bulkStatusValue}`
+      );
+      setBulkStatusValue("");
+      clearSelection();
+    } catch (err) {
+      toastError(err.message);
+    }
   }
 
-  function handleDelete() {
+  async function handleCancel() {
     if (!deleteTarget) return;
-    deleteIncident(deleteTarget.id);
-    logActivity("DELETE_INCIDENT", deleteTarget.id, user?.email);
-    toastDanger(`Incident ${deleteTarget.id} deleted`);
-    setSelected((prev) => prev.filter((id) => id !== deleteTarget.id));
-    setDeleteTarget(null);
+    try {
+      await cancelIncident(deleteTarget.id);
+      toastDanger(`Incident ${deleteTarget.id} cancelled`);
+      setSelected((prev) => prev.filter((id) => id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      toastError(err.message);
+    }
   }
 
   function squadName(id) {
@@ -213,7 +227,7 @@ export default function Incidents() {
           <div className="flex items-center gap-2">
             <select className="select w-40" value={bulkStatusValue} onChange={(e) => setBulkStatusValue(e.target.value)}>
               <option value="">{t("inc.status")}…</option>
-              {STATUS_OPTIONS.map((s) => (
+              {BULK_STATUS_OPTIONS.map((s) => (
                 <option key={s.key} value={s.key}>
                   {s.label}
                 </option>
@@ -310,13 +324,13 @@ export default function Incidents() {
                       >
                         <Icon name="search" className="w-4 h-4" />
                       </Link>
-                      {isCommander && (
+                      {isCommander && inc.status !== "RESOLVED" && inc.status_code !== 5 && (
                         <button
                           className="btn-ghost p-1.5 text-danger-600 hover:text-danger-600"
-                          title="Delete incident"
+                          title="Cancel incident"
                           onClick={() => setDeleteTarget(inc)}
                         >
-                          <Icon name="trash" className="w-4 h-4" />
+                          <Icon name="close" className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -344,10 +358,10 @@ export default function Incidents() {
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete Incident"
-        message={`Are you sure you want to permanently delete incident ${deleteTarget?.id || ""}? This action cannot be undone.`}
-        confirmLabel="Delete"
+        onConfirm={handleCancel}
+        title="Cancel Incident"
+        message={`Cancel incident ${deleteTarget?.id || ""}? A SOS_CANCELLED event is emitted (the log stays append-only).`}
+        confirmLabel="Cancel incident"
         danger
       />
     </div>

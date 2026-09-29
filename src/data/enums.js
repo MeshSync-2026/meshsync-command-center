@@ -33,6 +33,7 @@ export const SEVERITY = {
   1: { label: "Low", tone: "ok" },
   2: { label: "Medium", tone: "warn" },
   3: { label: "High", tone: "danger" },
+  4: { label: "Very High", tone: "danger" },
 };
 
 

@@ -371,6 +371,15 @@ export const ccApi = {
       body: JSON.stringify(data),
     });
   },
+
+
+  async resolveIncident(id) {
+    return apiFetch(`${CC_URL}/incidents/${id}/resolve`, { method: "POST" });
+  },
+
+  async cancelIncident(id) {
+    return apiFetch(`${CC_URL}/incidents/${id}/cancel`, { method: "POST" });
+  },
 };
 
 export async function fetchAllData() {
@@ -413,7 +422,7 @@ export async function fetchAllData() {
         actor_email: e.origin_node_id,
         target: e.incident_id,
         timestamp: e.created_at,
-        ip_address: e.origin_node_id,
+        origin_node_id: e.origin_node_id,
       }))
     : [];
 

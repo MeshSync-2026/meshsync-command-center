@@ -9,14 +9,7 @@ import SriLankaMap from "../components/SriLankaMap";
 import Icon from "../components/Icon";
 import { SEVERITY, STATUS, CONFIDENCE, HAZARD_CATEGORY, ACTION_TYPE } from "../data/enums";
 
-const STATUS_OPTIONS = Object.entries(STATUS).map(([key, val]) => ({
-  key,
-  label: val.label,
-}));
-const SEVERITY_OPTIONS = Object.entries(SEVERITY).map(([key, val]) => ({
-  key,
-  label: val.label,
-}));
+
 
 const STATUS_LEVELS = {
   0: { label: "OK", tone: "ok" },
@@ -29,14 +22,12 @@ export default function IncidentDetail() {
   const { t, isCommander, user } = useApp();
   const {
     incidents, squads, history,
-    updateIncident, logActivity,
+    resolveIncident, cancelIncident, assignIncidentSquad,
   } = useData();
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
-    status: "",
-    severity_level: "",
     assigned_squad_id: "",
   });
 
@@ -73,29 +64,40 @@ export default function IncidentDetail() {
   }
 
   function openEdit() {
-    setEditForm({
-      status: incident.status,
-      severity_level: String(incident.severity_level),
-      assigned_squad_id: incident.assigned_squad_id || "",
-    });
+    setEditForm({ assigned_squad_id: incident.assigned_squad_id || "" });
     setEditOpen(true);
   }
 
-  function handleSaveEdit() {
-    const patch = {
-      status: editForm.status,
-      severity_level: Number(editForm.severity_level),
-      assigned_squad_id: editForm.assigned_squad_id || null,
-    };
-
-    if (editForm.assigned_squad_id && editForm.status === "UNASSIGNED") {
-      patch.status = "ASSIGNED";
+  async function handleSaveEdit() {
+    if (!editForm.assigned_squad_id) {
+      toastError("Select a squad to dispatch");
+      return;
     }
+    try {
+      await assignIncidentSquad(incident.id, editForm.assigned_squad_id);
+      toastSuccess(`Squad dispatched to incident ${incident.id}`);
+      setEditOpen(false);
+    } catch (err) {
+      toastError(err.message);
+    }
+  }
 
-    updateIncident(incident.id, patch);
-    logActivity("STATUS_UPDATE", incident.id, user?.email);
-    toastSuccess(`Incident ${incident.id} updated`);
-    setEditOpen(false);
+  async function handleResolve() {
+    try {
+      await resolveIncident(incident.id);
+      toastSuccess(`Incident ${incident.id} resolved`);
+    } catch (err) {
+      toastError(err.message);
+    }
+  }
+
+  async function handleCancelIncident() {
+    try {
+      await cancelIncident(incident.id);
+      toastSuccess(`Incident ${incident.id} cancelled`);
+    } catch (err) {
+      toastError(err.message);
+    }
   }
 
   return (
@@ -111,10 +113,24 @@ export default function IncidentDetail() {
               Back
             </Link>
 
-            <button className="btn-primary" onClick={openEdit}>
-              <Icon name="edit" className="w-4 h-4 mr-1" />
-              {t("inc.edit")}
-            </button>
+            {incident.status !== "RESOLVED" && incident.status_code !== 5 && (
+              <>
+                <button className="btn-primary" onClick={openEdit}>
+                  <Icon name="squads" className="w-4 h-4 mr-1" />
+                  Dispatch squad
+                </button>
+                <button className="btn-secondary" onClick={handleResolve}>
+                  <Icon name="check" className="w-4 h-4 mr-1" />
+                  Resolve
+                </button>
+                {isCommander && (
+                  <button className="btn-danger" onClick={handleCancelIncident}>
+                    <Icon name="close" className="w-4 h-4 mr-1" />
+                    Cancel
+                  </button>
+                )}
+              </>
+            )}
           </div>
         }
       />
@@ -254,38 +270,8 @@ export default function IncidentDetail() {
         </div>
       </div>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit Incident ${incident.id}`}>
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Dispatch squad — ${incident.id}`}>
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t("inc.status")}</label>
-            <select
-              className="select w-full"
-              value={editForm.status}
-              onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t("inc.severity")}</label>
-            <select
-              className="select w-full"
-              value={editForm.severity_level}
-              onChange={(e) => setEditForm((f) => ({ ...f, severity_level: e.target.value }))}
-            >
-              {SEVERITY_OPTIONS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">{t("inc.assigned")}</label>
             <select
@@ -304,7 +290,7 @@ export default function IncidentDetail() {
 
           <div className="flex gap-2 justify-end pt-2">
             <button className="btn-secondary" onClick={() => setEditOpen(false)}>{t("common.cancel")}</button>
-            <button className="btn-primary" onClick={handleSaveEdit}>{t("inc.saveChanges")}</button>
+            <button className="btn-primary" onClick={handleSaveEdit}>Dispatch</button>
           </div>
         </div>
       </Modal>
