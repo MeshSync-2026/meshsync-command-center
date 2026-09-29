@@ -7,50 +7,47 @@ import { Badge, PageHeader, Modal, ConfirmDialog, EmptyState } from "../componen
 import Icon from "../components/Icon";
 import { SEVERITY } from "../data/enums";
 
-const SEVERITY_KEYS = Object.keys(SEVERITY);
-
 export default function Clusters() {
   const { t, isCommander } = useApp();
-  const { clusters, incidents, updateCluster, deleteCluster } = useData();
+  const { clusters, incidents, resolveCluster, recalculateClusters, loading } = useData();
   const { toastSuccess, toastError } = useToast();
 
   const [detailCluster, setDetailCluster] = useState(null);
-  const [editCluster, setEditCluster] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", max_severity: 1 });
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmResolve, setConfirmResolve] = useState(null);
 
   const incidentsOf = (clusterId) => incidents.filter((i) => i.cluster_id === clusterId);
 
-  const openEdit = (cluster) => {
-    setEditCluster(cluster);
-    setEditForm({ name: cluster.name, max_severity: cluster.max_severity });
-  };
-
-  const handleEdit = (e) => {
-    e.preventDefault();
-    if (!editForm.name.trim()) {
-      toastError("Cluster name is required");
-      return;
+  const handleRecalculate = async () => {
+    try {
+      await recalculateClusters();
+      toastSuccess("Clusters recalculated");
+    } catch (err) {
+      toastError(err.message);
     }
-
-    updateCluster(editCluster.id, {
-      name: editForm.name.trim(),
-      max_severity: Number(editForm.max_severity),
-    });
-    toastSuccess("Cluster updated");
-    setEditCluster(null);
   };
 
-  const handleDelete = () => {
-    deleteCluster(confirmDelete.id);
-    toastSuccess("Cluster deleted");
-    setConfirmDelete(null);
-    setDetailCluster(null);
+  const handleResolve = async () => {
+    try {
+      await resolveCluster(confirmResolve.id);
+      toastSuccess("Cluster resolved");
+      setConfirmResolve(null);
+      setDetailCluster(null);
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
   return (
     <div className="p-6 space-y-6">
-      <PageHeader title={t("cluster.title")} />
+      <PageHeader
+        title={t("cluster.title")}
+        action={
+          <button className="btn-secondary" onClick={handleRecalculate} disabled={loading}>
+            <Icon name="sync" className="w-4 h-4 mr-1.5" />
+            Recalculate
+          </button>
+        }
+      />
 
       {clusters.length === 0 ? (
         <EmptyState icon="clusters" message={t("cluster.empty")} />
@@ -106,17 +103,13 @@ export default function Clusters() {
                     View Members
                   </button>
 
-                  <button className="btn-ghost" onClick={() => openEdit(cluster)} title={t("inc.edit")}>
-                    <Icon name="edit" className="w-4 h-4" />
-                  </button>
-
-                  {isCommander && (
+                  {isCommander && cluster.status === "ACTIVE" && (
                     <button
                       className="btn-danger"
-                      onClick={() => setConfirmDelete(cluster)}
-                      title={t("common.delete")}
+                      onClick={() => setConfirmResolve(cluster)}
+                      title="Resolve cluster"
                     >
-                      <Icon name="trash" className="w-4 h-4" />
+                      <Icon name="check" className="w-4 h-4" />
                     </button>
                   )}
                 </div>
@@ -168,47 +161,14 @@ export default function Clusters() {
         )}
       </Modal>
 
-      <Modal open={!!editCluster} onClose={() => setEditCluster(null)} title={t("inc.edit")}>
-        <form onSubmit={handleEdit} className="space-y-4">
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">{t("cluster.name")}</label>
-            <input
-              className="input"
-              value={editForm.name}
-              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              required
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">{t("cluster.maxSeverity")}</label>
-            <select
-              className="select"
-              value={editForm.max_severity}
-              onChange={(e) => setEditForm({ ...editForm, max_severity: e.target.value })}
-            >
-              {SEVERITY_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {SEVERITY[k].label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="btn-ghost" onClick={() => setEditCluster(null)}>{t("common.cancel")}</button>
-            <button type="submit" className="btn-primary">{t("common.save")}</button>
-          </div>
-        </form>
-      </Modal>
-
       <ConfirmDialog
-        open={!!confirmDelete}
-        title="Delete Cluster"
-        message="Delete this cluster? Member incidents will be unlinked but not deleted."
-        confirmLabel={t("common.delete")}
+        open={!!confirmResolve}
+        title="Resolve Cluster"
+        message={`Mark cluster ${confirmResolve?.id || ""} as resolved? Member incidents stay open until individually resolved.`}
+        confirmLabel="Resolve"
         tone="danger"
-        onConfirm={handleDelete}
-        onCancel={() => setConfirmDelete(null)}
+        onConfirm={handleResolve}
+        onCancel={() => setConfirmResolve(null)}
       />
     </div>
   );

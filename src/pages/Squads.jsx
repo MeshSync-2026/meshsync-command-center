@@ -6,7 +6,6 @@ import { useToast } from "../context/ToastContext";
 import { Badge, PageHeader, Modal, ConfirmDialog, EmptyState } from "../components/ui";
 import Icon from "../components/Icon";
 import { SQUAD_ROLE } from "../data/enums";
-import { authorities } from "../data/mockData";
 
 const ROLE_KEYS = Object.keys(SQUAD_ROLE);
 
@@ -16,6 +15,7 @@ export default function Squads() {
     squads,
     squadMembers,
     zones,
+    users,
     createSquad,
     deleteSquad,
     assignSquadToZone,
@@ -23,6 +23,9 @@ export default function Squads() {
     removeSquadMember,
   } = useData();
   const { toastSuccess, toastError } = useToast();
+
+  // Only active authority accounts can lead or join squads
+  const activeAuthorities = users.filter((u) => u.is_active);
 
   const [showNew, setShowNew] = useState(false);
   const [detailSquad, setDetailSquad] = useState(null);
@@ -38,71 +41,88 @@ export default function Squads() {
     role_in_squad: SQUAD_ROLE.LEADER,
   });
 
-  const authorityName = (id) => authorities.find((a) => a.id === id)?.name ?? "—";
+  const authorityName = (id) => users.find((a) => a.id === id)?.name ?? "—";
   const zoneName = (id) => zones.find((z) => z.id === id)?.name ?? t("squad.unassigned");
   const membersOf = (squadId) => squadMembers.filter((m) => m.squad_id === squadId);
 
-  const handleCreate = (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     if (!newForm.squad_name.trim() || !newForm.leader_authority_user_id) {
       toastError("Squad name and leader are required");
       return;
     }
 
-    const squad = createSquad({
-      squad_name: newForm.squad_name.trim(),
-      leader_authority_user_id: newForm.leader_authority_user_id,
-      zone_id: newForm.zone_id || null,
-    });
+    try {
+      const squad = await createSquad({
+        squad_name: newForm.squad_name.trim(),
+        leader_authority_user_id: newForm.leader_authority_user_id,
+        zone_id: newForm.zone_id || null,
+      });
 
-    addSquadMember({
-      squad_id: squad.id,
-      authority_user_id: newForm.leader_authority_user_id,
-      role_in_squad: SQUAD_ROLE.LEADER,
-    });
+      await addSquadMember({
+        squad_id: squad.id,
+        authority_user_id: newForm.leader_authority_user_id,
+        role_in_squad: SQUAD_ROLE.LEADER,
+      });
 
-    toastSuccess(`Squad "${squad.squad_name}" created`);
-    setShowNew(false);
-    setNewForm({ squad_name: "", leader_authority_user_id: "", zone_id: "" });
+      toastSuccess(`Squad "${squad.squad_name}" created`);
+      setShowNew(false);
+      setNewForm({ squad_name: "", leader_authority_user_id: "", zone_id: "" });
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
 
-  const handleAssignZone = (squadId, zoneId) => {
-    assignSquadToZone(squadId, zoneId || null);
-    toastSuccess(zoneId ? "Zone assigned" : "Zone unassigned");
+  const handleAssignZone = async (squadId, zoneId) => {
+    try {
+      await assignSquadToZone(squadId, zoneId || null);
+      toastSuccess(zoneId ? "Zone assigned" : "Zone unassigned");
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
 
-  const handleAddMember = (e) => {
+  const handleAddMember = async (e) => {
     e.preventDefault();
     if (!memberForm.authority_user_id) {
       toastError("Select a responder to add");
       return;
     }
 
-    addSquadMember({
-      squad_id: detailSquad.id,
-      authority_user_id: memberForm.authority_user_id,
-      role_in_squad: memberForm.role_in_squad,
-    });
-
-    toastSuccess("Member added");
-    setShowAddMember(false);
-    setMemberForm({ authority_user_id: "", role_in_squad: SQUAD_ROLE.LEADER });
+    try {
+      await addSquadMember({
+        squad_id: detailSquad.id,
+        authority_user_id: memberForm.authority_user_id,
+        role_in_squad: memberForm.role_in_squad,
+      });
+      toastSuccess("Member added");
+      setShowAddMember(false);
+      setMemberForm({ authority_user_id: "", role_in_squad: SQUAD_ROLE.LEADER });
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
-  const handleRemoveMember = (memberId) => {
-    removeSquadMember(memberId);
-
-    toastSuccess("Member removed");
+  const handleRemoveMember = async (memberId) => {
+    try {
+      await removeSquadMember(detailSquad.id, memberId);
+      toastSuccess("Member removed");
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
-  const handleDelete = () => {
-    deleteSquad(confirmDelete.id);
-
-    toastSuccess("Squad deleted");
-    setConfirmDelete(null);
-    setDetailSquad(null);
+  const handleDelete = async () => {
+    try {
+      await deleteSquad(confirmDelete.id);
+      toastSuccess("Squad deleted");
+      setConfirmDelete(null);
+      setDetailSquad(null);
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
   return (
@@ -202,7 +222,7 @@ export default function Squads() {
               required
             >
               <option value="">—</option>
-              {authorities.filter((a) => a.status === "APPROVED").map((a) => (
+              {activeAuthorities.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>
@@ -292,7 +312,7 @@ export default function Squads() {
               required
             >
               <option value="">—</option>
-              {authorities.filter((a) => a.status === "APPROVED").map((a) => (
+              {activeAuthorities.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>

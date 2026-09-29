@@ -1,6 +1,7 @@
 // Access requests management page
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
+import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
 import { Badge, PageHeader, ConfirmDialog } from "../components/ui";
 import Icon from "../components/Icon";
@@ -17,10 +18,13 @@ function formatDate(iso) {
 
 
 export default function AccessRequests() {
-  const { t, users, pendingUsers, approveUser, rejectUser, isCommander } = useApp();
+  const { t, isCommander } = useApp();
+  const { users, approveUser, rejectUser } = useData();
   const { toastSuccess, toastError } = useToast();
 
   const [confirmReject, setConfirmReject] = useState(null);
+  const pendingUsers = users.filter((u) => u.status === "PENDING" || u.is_active === false);
+  const approvedUsers = users.filter((u) => u.status === "APPROVED" || u.is_active === true);
 
   if (!isCommander) {
     return (
@@ -39,18 +43,24 @@ export default function AccessRequests() {
     );
   }
 
-  const handleApprove = (user) => {
-    approveUser(user.id);
-
-    toastSuccess(`${user.name} approved`);
+  const handleApprove = async (user) => {
+    try {
+      await approveUser(user.id);
+      toastSuccess(`${user.name} approved`);
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
 
-  const handleReject = (user) => {
-    rejectUser(user.id);
-
-    toastError(`${user.name} rejected`);
-    setConfirmReject(null);
+  const handleReject = async (user) => {
+    try {
+      await rejectUser(user.id);
+      toastError(`${user.name} rejected`);
+      setConfirmReject(null);
+    } catch (err) {
+      toastError(err.message);
+    }
   };
 
 
@@ -123,10 +133,10 @@ export default function AccessRequests() {
         <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
           <Icon name="shield" className="h-4 w-4 text-brand-600" />
           {t("access.approved")}
-          {users.length > 0 && <Badge tone="gray">{users.length}</Badge>}
+          {approvedUsers.length > 0 && <Badge tone="gray">{approvedUsers.length}</Badge>}
         </h2>
 
-        {users.length === 0 ? (
+        {approvedUsers.length === 0 ? (
           <div className="card p-6 text-center text-sm text-gray-500">{t("common.noData")}</div>
         ) : (
           <div className="card overflow-hidden">
@@ -142,7 +152,7 @@ export default function AccessRequests() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
+                  {approvedUsers.map((user) => (
                     <tr key={user.id} className="border-b border-gray-300/10 last:border-0">
                       <td className="px-4 py-3 text-gray-700">
                         {user.name}
