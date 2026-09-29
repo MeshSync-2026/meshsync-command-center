@@ -19,7 +19,7 @@ function timeAgo(iso) {
 
 export default function Responders() {
   const { t, isCommander } = useApp();
-  const { devices, toggleDevice } = useData();
+  const { devices, revokeDevice } = useData();
   const { toastSuccess, toastError } = useToast();
 
   const [filter, setFilter] = useState("all");
@@ -32,21 +32,19 @@ export default function Responders() {
   });
 
 
-  const handleToggle = (device) => {
-    toggleDevice(device.id);
-
-    toastSuccess(device.is_active ? "Device deactivated" : "Device activated");
-  };
-
-  const handleConfirmDeactivate = () => {
+  const handleConfirmDeactivate = async () => {
     const device = confirmDeactivate;
-    if (device.is_active) {
-      toggleDevice(device.id);
-      toastSuccess("Device deactivated");
-    } else {
+    if (!device.is_active) {
       toastError("Device is already inactive");
+      setConfirmDeactivate(null);
+      return;
     }
-
+    try {
+      await revokeDevice(device.id);
+      toastSuccess("Device deactivated");
+    } catch (err) {
+      toastError(err.message);
+    }
     setConfirmDeactivate(null);
   };
 
@@ -113,14 +111,7 @@ export default function Responders() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          className="btn-ghost"
-                          onClick={() => handleToggle(device)}
-                          title={device.is_active ? "Deactivate" : "Activate"}
-                        >
-                          <Icon name={device.is_active ? "close" : "check"} className="w-4 h-4" />
-                        </button>
-                        {isCommander && device.is_active && (
+                        {isCommander && device.is_active ? (
                           <button
                             className="btn-danger"
                             onClick={() => setConfirmDeactivate(device)}
@@ -128,6 +119,8 @@ export default function Responders() {
                           >
                             <Icon name="trash" className="w-4 h-4" />
                           </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
                         )}
                       </div>
                     </td>

@@ -9,10 +9,15 @@ import {
   useRef,
 } from "react";
 import * as mock from "../data/mockData";
-import { edgeSyncApi, ccApi, fetchAllData } from "../api/client";
+import { ccApi, fetchAllData } from "../api/client";
+
+const RESOLVED_CODE = 5; // STATUS.RESOLVED
 
 const DataContext = createContext(null);
 const REFRESH_INTERVAL_MS = 15000;
+
+// Demo data seeding is a dev-tool only — never available in production builds.
+const DEMO_SEEDING_ENABLED = import.meta.env.DEV;
 
 export function DataProvider({ children }) {
   const [incidents, setIncidents] = useState([]);
@@ -73,17 +78,19 @@ export function DataProvider({ children }) {
     setLoading(true);
     try {
       const data = await fetchAllData();
-      if (data.incidents.length > 0) setIncidents(data.incidents);
-      if (data.events.length > 0) setEvents(data.events);
-      if (data.batches.length > 0) setBatches(data.batches);
-      if (data.squads.length > 0) setSquads(data.squads);
-      if (data.devices.length > 0) setDevices(data.devices);
-      if (data.zones.length > 0) setZones(data.zones);
-      if (data.satUplinks.length > 0) setSatUplinks(data.satUplinks);
-      if (data.clusters.length > 0) setClusters(data.clusters);
-      if (data.syncSessions.length > 0) setSyncSessions(data.syncSessions);
-      if (data.activity.length > 0) setActivity(data.activity);
-      if (data.users.length > 0) setUsers(data.users);
+      // Always overwrite — empty results mean the DB is genuinely empty.
+      // Guarding on length would leave stale or mock rows behind.
+      setIncidents(data.incidents);
+      setEvents(data.events);
+      setBatches(data.batches);
+      setSquads(data.squads);
+      setDevices(data.devices);
+      setZones(data.zones);
+      setSatUplinks(data.satUplinks);
+      setClusters(data.clusters);
+      setSyncSessions(data.syncSessions);
+      setActivity(data.activity);
+      setUsers(data.users);
 
       setApiErrors(data.errors || []);
       setLastRefresh(new Date().toISOString());
@@ -94,116 +101,152 @@ export function DataProvider({ children }) {
     }
   }, []);
 
+  // Fetch squad members once the squad list is known
   useEffect(() => {
-    if (!isSeeded) return;
+    if (squads.length === 0) {
+      setSquadMembers([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const members = [];
+      for (const squad of squads) {
+        try {
+          const detail = await ccApi.getSquad(squad.id);
+          for (const m of detail.members || []) members.push(m);
+        } catch { /* squad detail unavailable — leave it out */ }
+      }
+      if (!cancelled) setSquadMembers(members);
+    })();
+    return () => { cancelled = true; };
+  }, [squads]);
+
+  useEffect(() => {
     refreshAll();
     refreshTimer.current = setInterval(refreshAll, REFRESH_INTERVAL_MS);
     return () => clearInterval(refreshTimer.current);
-  }, [refreshAll, isSeeded]);
+  }, [refreshAll]);
 
-  const updateIncident = useCallback((id, patch) => {
-    setIncidents((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, ...patch, updated_at: new Date().toISOString() } : i))
-    );
-  }, []);
+  // --- Write actions: every one calls the real backend, then refreshes ---
 
-  const deleteIncident = useCallback((id) => {
-    setIncidents((prev) => prev.filter((i) => i.id !== id));
-  }, []);
+  const runAction = useCallback(async (fn) => {
+    const result = await fn();
+    await refreshAll();
+    return result;
+  }, [refreshAll]);
 
-  const bulkAssign = useCallback((ids, squadId) => {
-    setIncidents((prev) =>
-      prev.map((i) =>
-        ids.includes(i.id)
-          ? { ...i, assigned_squad_id: squadId, status: "ASSIGNED", updated_at: new Date().toISOString() }
-          : i
-      )
-    );
-  }, []);
+  // Incidents are event-sourced projections: status changes emit cloud events.
+  const updateIncident = useCallback(async (id, patch = {}) => {
+    return runAction(async () => {
+      if (patch.status === "RESOLVED" || patch.status_code === RESOLVED_CODE) {
+        await ccApi.resolveIncident(id);
+      } else if (patch.status === "CANCELLED") {
+        await ccApi.cancelIncident(id);
+      }
+      if (patch.assigned_squad_id) {
+        const incident = incidents.find((i) => i.id === id);
+        const squad = squads.find((s) => s.id === patch.assigned_squad_id);
+        const zoneId = incident?.zone_id || squad?.zone_id;
+        if (!zoneId) throw new Error("No zone on the incident or squad — assign a zone first");
+        await ccApi.dispatchSquad({ squad_id: patch.assigned_squad_id, zone_id: zoneId, incident_id: id });
+      }
+    });
+  }, [runAction, incidents, squads]);
 
-  const bulkStatus = useCallback((ids, status) => {
-    setIncidents((prev) =>
-      prev.map((i) => (ids.includes(i.id) ? { ...i, status, updated_at: new Date().toISOString() } : i))
-    );
-  }, []);
+  const assignIncidentSquad = useCallback(async (id, squadId) => {
+    return runAction(async () => {
+      const incident = incidents.find((i) => i.id === id);
+      const squad = squads.find((s) => s.id === squadId);
+      const zoneId = incident?.zone_id || squad?.zone_id;
+      if (!zoneId) throw new Error("No zone on the incident or squad — assign a zone first");
+      await ccApi.dispatchSquad({ squad_id: squadId, zone_id: zoneId, incident_id: id });
+    });
+  }, [runAction, incidents, squads]);
 
-  const createSquad = useCallback((squad) => {
-    const newSquad = {
-      id: `SQD-${String(squads.length + 1).padStart(4, "0")}`,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      ...squad,
-    };
-    setSquads((prev) => [...prev, newSquad]);
-    return newSquad;
-  }, [squads]);
+  const cancelIncident = useCallback(async (id) => {
+    return runAction(() => ccApi.cancelIncident(id));
+  }, [runAction]);
 
-  const updateSquad = useCallback((id, patch) => {
-    setSquads((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...patch, updated_at: new Date().toISOString() } : s))
-    );
-  }, []);
+  const resolveIncident = useCallback(async (id) => {
+    return runAction(() => ccApi.resolveIncident(id));
+  }, [runAction]);
 
-  const deleteSquad = useCallback((id) => {
-    setSquads((prev) => prev.filter((s) => s.id !== id));
-    setSquadMembers((prev) => prev.filter((m) => m.squad_id !== id));
-  }, []);
+  const bulkAssign = useCallback(async (ids, squadId) => {
+    return runAction(async () => {
+      const squad = squads.find((s) => s.id === squadId);
+      for (const id of ids) {
+        const incident = incidents.find((i) => i.id === id);
+        const zoneId = incident?.zone_id || squad?.zone_id;
+        if (!zoneId) throw new Error(`Incident ${id}: no zone on incident or squad`);
+        await ccApi.dispatchSquad({ squad_id: squadId, zone_id: zoneId, incident_id: id });
+      }
+    });
+  }, [runAction, incidents, squads]);
 
-  const assignSquadToZone = useCallback((squadId, zoneId) => {
-    setSquads((prev) => prev.map((s) => (s.id === squadId ? { ...s, zone_id: zoneId } : s)));
-  }, []);
+  const bulkStatus = useCallback(async (ids, status) => {
+    return runAction(async () => {
+      for (const id of ids) {
+        if (status === "RESOLVED" || String(status) === "5") await ccApi.resolveIncident(id);
+        else if (status === "CANCELLED") await ccApi.cancelIncident(id);
+        else throw new Error(`Status '${status}' cannot be set by command — only RESOLVED or CANCELLED`);
+      }
+    });
+  }, [runAction]);
 
-  const addSquadMember = useCallback((member) => {
-    const newMember = {
-      id: `SM-${String(squadMembers.length + 1).padStart(4, "0")}`,
-      is_active: true,
-      joined_at: new Date().toISOString(),
-      ...member,
-    };
-    setSquadMembers((prev) => [...prev, newMember]);
-    return newMember;
-  }, [squadMembers]);
+  const createSquad = useCallback(async (squad) => {
+    return runAction(() => ccApi.createSquad(squad));
+  }, [runAction]);
 
-  const removeSquadMember = useCallback((id) => {
-    setSquadMembers((prev) => prev.filter((m) => m.id !== id));
-  }, []);
+  const updateSquad = useCallback(async (id, patch) => {
+    return runAction(() => ccApi.updateSquad(id, patch));
+  }, [runAction]);
 
-  const updateSquadMember = useCallback((id, patch) => {
-    setSquadMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-  }, []);
+  const deleteSquad = useCallback(async (id) => {
+    return runAction(() => ccApi.deleteSquad(id));
+  }, [runAction]);
 
-  const updateCluster = useCallback((id, patch) => {
-    setClusters((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  }, []);
+  const assignSquadToZone = useCallback(async (squadId, zoneId) => {
+    return runAction(() => ccApi.updateSquad(squadId, { zone_id: zoneId }));
+  }, [runAction]);
 
-  const deleteCluster = useCallback((id) => {
-    setClusters((prev) => prev.filter((c) => c.id !== id));
-    setIncidents((prev) =>
-      prev.map((i) => (i.cluster_id === id ? { ...i, cluster_id: null } : i))
-    );
-  }, []);
+  const addSquadMember = useCallback(async (member) => {
+    return runAction(() => ccApi.addSquadMember(member.squad_id, {
+      authority_user_id: member.authority_user_id,
+      role_in_squad: member.role_in_squad,
+    }));
+  }, [runAction]);
 
-  const toggleDevice = useCallback((id) => {
-    setDevices((prev) => prev.map((d) => (d.id === id ? { ...d, is_active: !d.is_active } : d)));
-  }, []);
+  const removeSquadMember = useCallback(async (squadId, memberId) => {
+    return runAction(() => ccApi.removeSquadMember(squadId, memberId));
+  }, [runAction]);
 
-  const logActivity = useCallback((action, target, actorEmail) => {
-    const entry = {
-      id: `ACT-${String(activity.length + 1).padStart(4, "0")}`,
-      actor_email: actorEmail || "system",
-      action, target,
-      timestamp: new Date().toISOString(),
-      ip_address: "127.0.0.1",
-    };
-    setActivity((prev) => [entry, ...prev]);
-  }, [activity]);
+  const resolveCluster = useCallback(async (id) => {
+    return runAction(() => ccApi.resolveCluster(id));
+  }, [runAction]);
+
+  const recalculateClusters = useCallback(async () => {
+    return runAction(() => ccApi.recalculateClusters());
+  }, [runAction]);
+
+  const revokeDevice = useCallback(async (id) => {
+    return runAction(() => ccApi.revokeDevice(id));
+  }, [runAction]);
+
+  const approveUser = useCallback(async (id) => {
+    return runAction(() => ccApi.approveUser(id));
+  }, [runAction]);
+
+  const rejectUser = useCallback(async (id) => {
+    return runAction(() => ccApi.rejectUser(id));
+  }, [runAction]);
 
   const kpis = useMemo(() => {
     const total = incidents.length;
-    const active = incidents.filter((i) => i.status !== "RESOLVED").length;
-    const resolved = incidents.filter((i) => i.status === "RESOLVED").length;
+    const isResolved = (i) => i.status === "RESOLVED" || i.status_code === RESOLVED_CODE;
+    const active = incidents.filter((i) => !isResolved(i)).length;
+    const resolved = incidents.filter(isResolved).length;
     const unassigned = incidents.filter(
-      (i) => i.status === "UNASSIGNED" || i.status === "OPEN"
+      (i) => i.status === "UNASSIGNED" || i.status === "OPEN" || i.status_code === 1
     ).length;
     const live = incidents.filter(
       (i) => i.confidence_code === "LIVE" || i.confidence_code === 1
@@ -212,7 +255,7 @@ export function DataProvider({ children }) {
       (i) => i.confidence_code === "UNCONFIRMED" || i.confidence_code === 2
     ).length;
     const critical = incidents.filter(
-      (i) => i.severity_level === 3 && i.status !== "RESOLVED"
+      (i) => (i.severity_level === 3 || i.severity_level === 4) && !isResolved(i)
     ).length;
     const pendingSync = events.filter((e) => !e.is_cloud_synced).length;
 
@@ -255,10 +298,13 @@ export function DataProvider({ children }) {
       apiErrors,
       refreshAll,
       isSeeded,
+      demoSeedingEnabled: DEMO_SEEDING_ENABLED,
       seedDemoData,
       clearData,
       updateIncident,
-      deleteIncident,
+      assignIncidentSquad,
+      cancelIncident,
+      resolveIncident,
       bulkAssign,
       bulkStatus,
       createSquad,
@@ -267,21 +313,21 @@ export function DataProvider({ children }) {
       assignSquadToZone,
       addSquadMember,
       removeSquadMember,
-      updateSquadMember,
-      updateCluster,
-      deleteCluster,
-      toggleDevice,
-      logActivity,
+      resolveCluster,
+      recalculateClusters,
+      revokeDevice,
+      approveUser,
+      rejectUser,
     }),
     [
       incidents, clusters, squads, squadMembers, devices, events, history,
       syncSessions, satUplinks, batches, activity, zones, users, kpis,
       loading, lastRefresh, apiErrors, refreshAll,
       isSeeded, seedDemoData, clearData,
-      updateIncident, deleteIncident, bulkAssign, bulkStatus,
+      updateIncident, assignIncidentSquad, cancelIncident, resolveIncident, bulkAssign, bulkStatus,
       createSquad, updateSquad, deleteSquad, assignSquadToZone,
-      addSquadMember, removeSquadMember, updateSquadMember,
-      updateCluster, deleteCluster, toggleDevice, logActivity,
+      addSquadMember, removeSquadMember,
+      resolveCluster, recalculateClusters, revokeDevice, approveUser, rejectUser,
     ]
   );
 

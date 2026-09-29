@@ -1,30 +1,42 @@
 // Signup/access request page
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
+import { useToast } from "../context/ToastContext";
 import { useNavigate, Link } from "react-router-dom";
 import { CLEARANCE } from "../data/enums";
 
 export default function Signup() {
-  const { t, signUp, toastSuccess } = useApp();
+  const { t, signUp } = useApp();
+  const { toastSuccess } = useToast();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     name: "",
     email: "",
+    password: "",
     role: "DISPATCHER",
     organization: "",
   });
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
-    const result = signUp(form);
-    if (result.ok) {
-      toastSuccess(t("auth.signupSuccess"));
-      navigate("/login");
-    } else {
-      setError(t(`auth.${result.error}`));
+    if (form.password.length < 8) {
+      setError(t("auth.weakPassword") || "Password must be at least 8 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await signUp(form);
+      if (result.ok) {
+        toastSuccess(t("auth.signupSuccess"));
+        navigate("/login");
+      } else {
+        setError(t(`auth.${result.error}`));
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -78,6 +90,20 @@ export default function Signup() {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">
+                {t("auth.password")}
+              </label>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="input"
+                placeholder="••••••••"
+                required
+                minLength={8}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">
                 {t("auth.role")}
               </label>
               <select
@@ -100,8 +126,8 @@ export default function Signup() {
                 className="input"
               />
             </div>
-            <button type="submit" className="btn-primary w-full">
-              {t("auth.signupBtn")}
+            <button type="submit" className="btn-primary w-full" disabled={loading}>
+              {loading ? "…" : t("auth.signupBtn")}
             </button>
           </form>
 

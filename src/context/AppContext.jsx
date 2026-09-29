@@ -1,50 +1,21 @@
-// App context for auth, language, and user management
-import { createContext, useContext, useMemo, useState, useCallback } from "react";
-import bcrypt from "bcryptjs";
+// App context for auth, language, and session
+import { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
 import { translations, LANGS } from "../i18n/translations";
-import { ccApi } from "../api/client";
+import { ccApi, setAuthToken, getAuthToken } from "../api/client";
 
 const AppContext = createContext(null);
 
 const LS_LANG = "meshsync.lang";
 const LS_SESSION = "meshsync.session";
-const LS_USERS = "meshsync.users";
 
-// Demo users with bcrypt-hashed passwords (cost factor 10).
-// In production, credentials come from the Command Center backend,
-// which stores hashes using the same bcrypt scheme.
-const SEED_USERS = [
-  {
-    id: "u-001", name: "Capt. Anjali Perera", email: "anjali@meshsync.lk",
-    password: "$2b$10$eu4Pze3I.ep7oBhyXUnNA.FrskxeW1acFAutDTz3fDyuAZKS8Gk4W",
-    role: "COMMANDER", status: "APPROVED",
-    requestedAt: new Date(Date.now() - 30 * 86400000).toISOString(), approvedBy: "system",
-  },
-  {
-    id: "u-002", name: "Disp. Suresh Kanagaraj", email: "suresh@meshsync.lk",
-    password: "$2b$10$7iiLNpzCfLoVYXrnpMg6Wu8S67fs88yv7NwkrzjEoVbljQfS34ElO",
-    role: "DISPATCHER", status: "APPROVED",
-    requestedAt: new Date(Date.now() - 20 * 86400000).toISOString(), approvedBy: "system",
-  },
-  {
-    id: "u-003", name: "Disp. Tharindu Silva", email: "tharindu@meshsync.lk",
-    password: "$2b$10$cFkFbfiuCfGkfVpu5gU4x./BjkO.un4csRwtQTqTjWxs/2cqamPVq",
-    role: "DISPATCHER", status: "APPROVED",
-    requestedAt: new Date(Date.now() - 15 * 86400000).toISOString(), approvedBy: "system",
-  },
-];
-
-function loadUsers() {
-  try {
-    const raw = localStorage.getItem(LS_USERS);
-    if (raw) return JSON.parse(raw);
-  } catch { }
-  localStorage.setItem(LS_USERS, JSON.stringify(SEED_USERS));
-  return [...SEED_USERS];
-}
-
-function saveUsers(users) {
-  localStorage.setItem(LS_USERS, JSON.stringify(users));
+function sessionFromApi(result) {
+  const u = result.user || result;
+  return {
+    id: u.id,
+    name: u.full_name || u.name || u.username,
+    email: u.username || u.email,
+    role: u.clearance_level || u.role || "DISPATCHER",
+  };
 }
 
 export function AppProvider({ children }) {
@@ -55,88 +26,77 @@ export function AppProvider({ children }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-  const [users, setUsers] = useState(() => loadUsers());
+  const [authChecked, setAuthChecked] = useState(false);
 
   const changeLang = useCallback((code) => {
     setLang(code);
     localStorage.setItem(LS_LANG, code);
   }, []);
 
-  const signIn = useCallback(async (email, password) => {
-    try {
-      const result = await ccApi.login(email, password);
-      if (result.token) {
-        const sess = {
-          id: result.user?.id || result.id,
-          name: result.user?.full_name || result.user?.name || email,
-          email: result.user?.username || email,
-          role: result.user?.clearance_level || result.user?.role || "DISPATCHER",
-        };
-        setSession(sess);
-        localStorage.setItem(LS_SESSION, JSON.stringify(sess));
-        return { ok: true };
-      }
-    } catch (apiErr) {
-    }
-
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
-      return { ok: false, error: "invalid" };
-    }
-    if (user.status === "PENDING") return { ok: false, error: "pending" };
-    if (user.status === "REJECTED") return { ok: false, error: "rejected" };
-    if (user.status === "DISABLED") return { ok: false, error: "disabled" };
-    const sess = { id: user.id, name: user.name, email: user.email, role: user.role };
-    setSession(sess);
-    localStorage.setItem(LS_SESSION, JSON.stringify(sess));
-    return { ok: true };
-  }, [users]);
-
   const signOut = useCallback(() => {
     setSession(null);
+    setAuthToken(null);
     localStorage.removeItem(LS_SESSION);
   }, []);
 
-  const signUp = useCallback(({ name, email, role, organization }) => {
-    const exists = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (exists) return { ok: false, error: "exists" };
-    const newUser = {
-      id: `u-${String(users.length + 1).padStart(3, "0")}-${Date.now().toString(36)}`,
-      name, email, password: null, role, organization: organization || "",
-      status: "PENDING", requestedAt: new Date().toISOString(), approvedBy: null,
-    };
-    const next = [newUser, ...users];
-    setUsers(next);
-    saveUsers(next);
-    return { ok: true };
-  }, [users]);
+  // On load, validate a persisted token against the backend. If the server is
+  // unreachable we keep the stored session so the UI doesn't force re-login
+  // during a temporary outage, but a real 401/403 always signs out.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!getAuthToken() || !session) {
+        setAuthChecked(true);
+        return;
+      }
+      try {
+        const me = await ccApi.getMe();
+        if (!cancelled && me) {
+          const refreshed = {
+            id: me.id || session.id,
+            name: me.full_name || session.name,
+            email: me.username || session.email,
+            role: me.clearance_level || session.role,
+          };
+          setSession(refreshed);
+          localStorage.setItem(LS_SESSION, JSON.stringify(refreshed));
+        }
+      } catch (err) {
+        if (!cancelled && /401|403/.test(err.message || "")) signOut();
+      } finally {
+        if (!cancelled) setAuthChecked(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const DEFAULT_PASSWORD = "demo1234";
-  const approveUser = useCallback((userId) => {
-    const next = users.map((u) =>
-      u.id === userId
-        ? {
-            ...u,
-            status: "APPROVED",
-            approvedBy: session?.email || "commander",
-            password: u.password || bcrypt.hashSync(DEFAULT_PASSWORD, 10),
-          }
-        : u
-    );
-    setUsers(next);
-    saveUsers(next);
-  }, [users, session]);
+  const signIn = useCallback(async (email, password) => {
+    try {
+      const result = await ccApi.login(email, password);
+      const sess = sessionFromApi(result);
+      setSession(sess);
+      localStorage.setItem(LS_SESSION, JSON.stringify(sess));
+      return { ok: true };
+    } catch (err) {
+      const msg = (err.message || "").toLowerCase();
+      if (msg.includes("pending")) return { ok: false, error: "pending" };
+      if (msg.includes("401") || msg.includes("invalid credentials")) return { ok: false, error: "invalid" };
+      return { ok: false, error: "unreachable" };
+    }
+  }, []);
 
-  const rejectUser = useCallback((userId) => {
-    const next = users.map((u) =>
-      u.id === userId ? { ...u, status: "REJECTED", approvedBy: session?.email || "commander" } : u
-    );
-    setUsers(next);
-    saveUsers(next);
-  }, [users, session]);
-
-  const pendingUsers = useMemo(() => users.filter((u) => u.status === "PENDING"), [users]);
-  const approvedUsers = useMemo(() => users.filter((u) => u.status === "APPROVED"), [users]);
+  const signUp = useCallback(async ({ name, email, password }) => {
+    try {
+      await ccApi.signup({ username: email, password, full_name: name });
+      return { ok: true };
+    } catch (err) {
+      if ((err.message || "").includes("409") || /exists/i.test(err.message || "")) {
+        return { ok: false, error: "exists" };
+      }
+      return { ok: false, error: "unreachable" };
+    }
+  }, []);
 
   const t = useMemo(() => {
     const dict = translations[lang] || translations.en;
@@ -156,11 +116,10 @@ export function AppProvider({ children }) {
   const value = useMemo(
     () => ({
       lang, changeLang, langs: LANGS, t,
-      user: session, signIn, signOut, signUp,
-      approveUser, rejectUser, users, pendingUsers, approvedUsers,
+      user: session, signIn, signOut, signUp, authChecked,
       isCommander: session?.role === "COMMANDER",
     }),
-    [lang, changeLang, t, session, signIn, signOut, signUp, approveUser, rejectUser, users, pendingUsers, approvedUsers]
+    [lang, changeLang, t, session, signIn, signOut, signUp, authChecked]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

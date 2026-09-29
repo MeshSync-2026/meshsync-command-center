@@ -20,11 +20,11 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }) {
-  const { t, isCommander, pendingUsers } = useApp();
-  const { kpis } = useData();
+  const { t, isCommander } = useApp();
+  const { kpis, users } = useData();
 
   const items = NAV_ITEMS.filter((item) => !item.commanderOnly || isCommander);
-  const pendingCount = pendingUsers.length;
+  const pendingCount = users.filter((u) => u.status === "PENDING" || u.is_active === false).length;
 
   return (
     <>
