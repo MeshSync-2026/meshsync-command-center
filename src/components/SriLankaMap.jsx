@@ -7,6 +7,7 @@ const SEVERITY_COLORS = {
   1: "#10b981",
   2: "#f59e0b",
   3: "#e02424",
+  4: "#7f1d1d",
 };
 
 const BRAND_COLOR = "#1a66db";
@@ -79,7 +80,7 @@ export default function SriLankaMap({ incidents = [], clusters = [], districtCoo
 
         {validIncidents.map((inc) => {
           const color = SEVERITY_COLORS[inc.severity_level] || BRAND_COLOR;
-          const radius = inc.severity_level === 3 ? 10 : inc.severity_level === 2 ? 8 : 6;
+          const radius = inc.severity_level >= 4 ? 14 : inc.severity_level === 3 ? 10 : inc.severity_level === 2 ? 8 : 6;
           const confLabel =
             CONFIDENCE[inc.confidence_code]?.label || inc.confidence_code || "Unknown";
 
@@ -104,7 +105,7 @@ export default function SriLankaMap({ incidents = [], clusters = [], districtCoo
                   <p>People: {inc.people_count}</p>
                   {inc.landmark_name && <p>Landmark: {inc.landmark_name}</p>}
                   <p className="text-gray-400 mt-1">
-                    {inc.latitude.toFixed(4)}, {inc.longitude.toFixed(4)}
+                    {inc.latitude != null ? Number(inc.latitude).toFixed(4) : "—"}, {inc.longitude != null ? Number(inc.longitude).toFixed(4) : "—"}
                   </p>
                 </div>
               </Popup>
