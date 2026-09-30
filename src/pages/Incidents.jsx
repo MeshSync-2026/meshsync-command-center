@@ -149,7 +149,9 @@ export default function Incidents() {
   function locationLabel(inc) {
     return (
       inc.landmark_name ||
-      `${inc.latitude.toFixed(3)}, ${inc.longitude.toFixed(3)}`
+      (inc.latitude != null && inc.longitude != null
+        ? `${Number(inc.latitude).toFixed(3)}, ${Number(inc.longitude).toFixed(3)}`
+        : "Location unavailable")
     );
   }
 

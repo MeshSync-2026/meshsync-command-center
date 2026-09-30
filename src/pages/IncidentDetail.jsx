@@ -155,8 +155,8 @@ export default function IncidentDetail() {
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <InfoTile icon="users" label={t("common.people")} value={incident.people_count} />
-              <InfoTile icon="pin" label="Latitude" value={incident.latitude.toFixed(4)} />
-              <InfoTile icon="pin" label="Longitude" value={incident.longitude.toFixed(4)} />
+              <InfoTile icon="pin" label="Latitude" value={incident.latitude != null ? Number(incident.latitude).toFixed(4) : "—"} />
+              <InfoTile icon="pin" label="Longitude" value={incident.longitude != null ? Number(incident.longitude).toFixed(4) : "—"} />
               <InfoTile icon="map" label="Landmark" value={incident.landmark_name || "—"} />
               <InfoTile icon="radio" label="Creator Node" value={incident.creator_node_id} />
               <InfoTile

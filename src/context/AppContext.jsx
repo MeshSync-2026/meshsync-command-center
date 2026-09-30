@@ -62,7 +62,7 @@ export function AppProvider({ children }) {
           localStorage.setItem(LS_SESSION, JSON.stringify(refreshed));
         }
       } catch (err) {
-        if (!cancelled && /401|403/.test(err.message || "")) signOut();
+        if (!cancelled && (err.status === 401 || err.status === 403 || /401|403/.test(err.message || ""))) signOut();
       } finally {
         if (!cancelled) setAuthChecked(true);
       }

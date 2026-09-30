@@ -139,9 +139,14 @@ async function apiFetch(url, options = {}) {
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(error.error || `HTTP ${res.status}`);
+      const err = new Error(error.error || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
     }
-    return await res.json();
+    // 204 No Content / empty bodies are valid success responses (e.g. DELETE)
+    if (res.status === 204) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   } catch (err) {
     if (err.message === "Failed to fetch" || err.message.includes("fetch")) {
       throw new Error(
