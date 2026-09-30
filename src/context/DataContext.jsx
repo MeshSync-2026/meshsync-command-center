@@ -10,6 +10,7 @@ import {
 } from "react";
 import * as mock from "../data/mockData";
 import { ccApi, fetchAllData } from "../api/client";
+import { useApp } from "./AppContext";
 
 const RESOLVED_CODE = 5; // STATUS.RESOLVED
 
@@ -20,6 +21,7 @@ const REFRESH_INTERVAL_MS = 15000;
 const DEMO_SEEDING_ENABLED = import.meta.env.DEV;
 
 export function DataProvider({ children }) {
+  const { user, authChecked } = useApp();
   const [incidents, setIncidents] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [squads, setSquads] = useState([]);
@@ -121,11 +123,18 @@ export function DataProvider({ children }) {
     return () => { cancelled = true; };
   }, [squads]);
 
+  // Poll only while an authenticated session exists. Fetching before login
+  // produces a wall of 401s and stale data lingers after logout otherwise.
   useEffect(() => {
+    if (!authChecked) return;
+    if (!user) {
+      clearData();
+      return;
+    }
     refreshAll();
     refreshTimer.current = setInterval(refreshAll, REFRESH_INTERVAL_MS);
     return () => clearInterval(refreshTimer.current);
-  }, [refreshAll]);
+  }, [authChecked, user, refreshAll, clearData]);
 
   // --- Write actions: every one calls the real backend, then refreshes ---
 
