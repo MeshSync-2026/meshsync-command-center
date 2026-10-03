@@ -1,5 +1,6 @@
 // Root app component with routing
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { lazy, Suspense } from "react";
 
 import { AppProvider, useApp } from "./context/AppContext";
 import { DataProvider } from "./context/DataContext";
@@ -7,9 +8,10 @@ import { ToastProvider } from "./context/ToastContext";
 import { PrefsProvider } from "./context/PrefsContext";
 
 import AppLayout from "./components/AppLayout";
-import Dashboard from "./pages/Dashboard";
+// Map-heavy pages are lazy — keeps react-leaflet out of the login bundle
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const IncidentDetail = lazy(() => import("./pages/IncidentDetail"));
 import Incidents from "./pages/Incidents";
-import IncidentDetail from "./pages/IncidentDetail";
 import Clusters from "./pages/Clusters";
 import Squads from "./pages/Squads";
 import Responders from "./pages/Responders";
@@ -57,9 +59,9 @@ export default function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
 
                 <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/" element={<Suspense fallback={null}><Dashboard /></Suspense>} />
                   <Route path="/incidents" element={<Incidents />} />
-                  <Route path="/incidents/:id" element={<IncidentDetail />} />
+                  <Route path="/incidents/:id" element={<Suspense fallback={null}><IncidentDetail /></Suspense>} />
                   <Route path="/clusters" element={<Clusters />} />
                   <Route path="/squads" element={<Squads />} />
                   <Route path="/responders" element={<Responders />} />
