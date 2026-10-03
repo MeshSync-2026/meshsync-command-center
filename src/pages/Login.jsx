@@ -32,12 +32,14 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <main className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <img
             src="/logo-full.png"
             alt="MeshSync"
+            width="512"
+            height="256"
             className="h-16 mx-auto mb-4 object-contain"
           />
           <p className="text-sm text-gray-500">{t("dash.title")}</p>
@@ -107,6 +109,6 @@ export default function Login() {
         )}
 
       </div>
-    </div>
+    </main>
   );
 }
